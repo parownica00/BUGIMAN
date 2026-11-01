@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings>
+    <category label="TB7">
+        <setting id="tb7_user" type="text" label="Login TB7" default=""/>
+        <setting id="tb7_pass" type="text" option="hidden" label="Hasło TB7" default=""/>
+        <setting id="confirm_buy" type="bool" label="Pytaj przed pobraniem transferu" default="true"/>
+        <setting id="min_size_mb" type="number" label="Ukryj pliki mniejsze niż (MB)" default="200"/>
+        <setting id="strict_filter" type="bool" label="Pokazuj tylko pliki pasujące do tytułu" default="true"/>
+    </category>
+    <category label="Metadane">
+        <setting id="tmdb_key" type="text" label="Klucz TMDB API (v3)" default=""/>
+        <setting id="omdb_key" type="text" label="Klucz OMDb (opcjonalnie, oceny IMDb/RT)" default=""/>
+        <setting id="language" type="text" label="Język opisów" default="pl-PL"/>
+    </category>
+</settings>

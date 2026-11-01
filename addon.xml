@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.tb7kino" name="TB7 Kino" version="1.0.0" provider-name="Patryk">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+        <import addon="script.module.requests"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="pl_PL">Filmy i seriale z TB7 z opisami i ocenami z TMDB</summary>
+        <summary lang="en_GB">Movies and TV from your TB7 premium account with TMDB metadata</summary>
+        <description lang="pl_PL">Wyszukiwarka oparta o TMDB (polskie opisy, plakaty, oceny, opcjonalnie IMDb przez OMDb). Wybrany tytuł jest wyszukiwany na Twoim koncie TB7 i odtwarzany bezpośrednio w Kodi.</description>
+        <description lang="en_GB">TMDB-based browser that searches your own TB7 premium account and plays files in Kodi.</description>
+        <license>MIT</license>
+        <platform>all</platform>
+        <assets>
+            <icon>icon.png</icon>
+        </assets>
+    </extension>
+</addon>
