@@ -7,17 +7,23 @@ Wyszukiwarka filmów i seriali oparta o TMDB (polskie opisy, plakaty, oceny), kt
 2. Ustawienia → Menedżer plików → **Dodaj źródło** → adres `https://parownica00.github.io/BUGIMAN/`, nazwa `tb7kino`.
 3. Dodatki → **Zainstaluj z pliku ZIP** → `tb7kino` → `repository.tb7kino-x.x.x.zip`.
 4. Dodatki → **Zainstaluj z repozytorium** → *TB7 Kino - repozytorium* → Dodatki wideo → **TB7 Kino**.
-5. W ustawieniach addonu wpisz login i hasło TB7 oraz klucz TMDB (opcjonalnie OMDb).
+5. Otwórz addon: poprosi o hasło do kluczy API i sam uzupełni klucz TMDB. W ustawieniach wpisz login i hasło TB7.
 
 ## Jak działa
 - Menu: wyszukiwanie filmów i seriali, listy „na topie”, „popularne” i „najwyżej oceniane”, bezpośrednie wyszukiwanie w TB7, pliki na koncie, stan transferu.
 - Po wybraniu tytułu dodatek szuka w TB7 po polskim i oryginalnym tytule z rokiem (dla seriali `SxxEyy`), filtruje wyniki, sortuje je wg jakości i rozmiaru oraz oznacza wersję (Lektor, Dubbing, Napisy).
 - Przed pobraniem pliku dodatek pyta, ile transferu zużyje. Pliki, które już są na koncie, oznacza jako **NA KONCIE** i odtwarza bez dodatkowego transferu.
 
+## Klucze API na hasło
+Klucze TMDB/OMDb są zaszyfrowane hasłem w `plugin.video.tb7kino/resources/data/secrets.json` (PBKDF2-SHA256 200k + HMAC). Plik jest publiczny, więc liczy się siła hasła.
+- Gdy addon nie ma klucza TMDB, przy otwarciu sam poprosi o hasło i uzupełni ustawienia.
+- Ręcznie: menu **Odblokuj klucze API hasłem**.
+- Zmiana kluczy lub hasła: `python3 make_secret.py`, podbij wersję, `python3 build.py`, push.
+
 ## Wydanie nowej wersji
 1. Zmień kod w `plugin.video.tb7kino/` i podbij `version` w jego `addon.xml`.
 2. Uruchom `python3 build.py`.
-3. `git add -A && git commit -m "wersja X" && git push`. Kodi pobierze aktualizację sam.
+3. `git add -A && git commit -m "wersja X" && git push`. Kodi pobierze aktualizację sam (albo menu **Sprawdź aktualizacje**).
 
 ## Struktura
 - `plugin.video.tb7kino/` – źródła addonu

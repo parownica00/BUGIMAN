@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'resources', 'lib'))
 from tb7 import TB7, TB7Error  # noqa: E402
 from meta import Meta, img  # noqa: E402
 import match  # noqa: E402
+import vault  # noqa: E402
 
 ADDON = xbmcaddon.Addon()
 NAME = ADDON.getAddonInfo('name')
@@ -20,6 +21,7 @@ URL = sys.argv[0]
 HANDLE = int(sys.argv[1])
 ARGS = dict(parse_qsl(sys.argv[2][1:]))
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo('profile'))
+SECRETS = os.path.join(os.path.dirname(__file__), 'resources', 'data', 'secrets.json')
 
 
 def setting(k):
@@ -34,8 +36,40 @@ def notify(msg, icon=xbmcgui.NOTIFICATION_INFO):
     xbmcgui.Dialog().notification(NAME, msg, icon, 5000)
 
 
+def unlock_keys(ask_always=True):
+    """Odszyfrowuje klucze API z sejfu hasłem i zapisuje je w ustawieniach."""
+    blob = vault.load(SECRETS)
+    if not blob:
+        if ask_always:
+            xbmcgui.Dialog().ok(NAME, 'Brak zapisanych kluczy w tej wersji addonu.')
+        return False
+    for attempt in range(3):
+        pw = xbmcgui.Dialog().input('Hasło do kluczy API', type=xbmcgui.INPUT_ALPHANUM,
+                                    option=xbmcgui.ALPHANUM_HIDE_INPUT)
+        if not pw:
+            return False
+        try:
+            keys = vault.decrypt(blob, pw)
+        except ValueError:
+            notify('Nieprawidłowe hasło (%d/3)' % (attempt + 1), xbmcgui.NOTIFICATION_ERROR)
+            continue
+        for k, v in keys.items():
+            ADDON.setSetting(k, v)
+        notify('Klucze API uzupełnione')
+        return True
+    return False
+
+
 def meta():
+    if not setting('tmdb_key'):
+        unlock_keys(ask_always=False)
     return Meta(setting('tmdb_key'), setting('omdb_key'), setting('language'))
+
+
+def check_updates():
+    xbmc.executebuiltin('UpdateAddonRepos')
+    xbmc.executebuiltin('UpdateLocalAddons')
+    notify('Sprawdzam aktualizacje - wersja %s' % ADDON.getAddonInfo('version'))
 
 
 def tb7():
@@ -95,6 +129,8 @@ def art_for(d):
 
 # ---- menu ----------------------------------------------------------------------
 def root():
+    if not setting('tmdb_key') and os.path.exists(SECRETS):
+        unlock_keys(ask_always=False)
     add('[B]Szukaj filmu[/B]', u(action='search', kind='movie'))
     add('[B]Szukaj serialu[/B]', u(action='search', kind='tv'))
     add('Filmy - na topie (tydzień)', u(action='list', kind='movie', name='trending'))
@@ -107,6 +143,9 @@ def root():
     add('Szukaj bezpośrednio w TB7', u(action='raw_search'))
     add('Moje pliki na koncie TB7', u(action='library'))
     add('Stan konta TB7', u(action='account'), folder=False)
+    add('Odblokuj klucze API hasłem', u(action='unlock'), folder=False)
+    add('Sprawdź aktualizacje  [COLOR gray](wersja %s)[/COLOR]' % ADDON.getAddonInfo('version'),
+        u(action='update'), folder=False)
     add('Ustawienia', u(action='settings'), folder=False)
     end('files')
 
@@ -362,6 +401,10 @@ def router():
             account()
         elif a == 'plot':
             xbmcgui.Dialog().textviewer(ARGS.get('title', ''), ARGS.get('text', ''))
+        elif a == 'unlock':
+            unlock_keys()
+        elif a == 'update':
+            check_updates()
         elif a == 'settings':
             ADDON.openSettings()
     except ValueError as e:  # brak klucza TMDB itp.
