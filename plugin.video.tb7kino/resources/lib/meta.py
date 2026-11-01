@@ -31,7 +31,9 @@ class Meta:
 
     # ---- szczegóły -------------------------------------------------------
     def details(self, kind, tmdb_id):
-        d = self._get('%s/%s' % (kind, tmdb_id), append_to_response='external_ids,alternative_titles')
+        d = self._get('%s/%s' % (kind, tmdb_id),
+                      append_to_response='external_ids,alternative_titles,credits,videos',
+                      include_video_language='pl,en,null')
         if not d.get('overview') and self.lang != 'en-US':
             en = self.s.get(TMDB + '%s/%s' % (kind, tmdb_id),
                             params={'api_key': self.key, 'language': 'en-US'}, timeout=20).json()
@@ -40,6 +42,14 @@ class Meta:
 
     def season(self, tv_id, season):
         return self._get('tv/%s/season/%s' % (tv_id, season))
+
+    def person(self, person_id):
+        p = self._get('person/%s' % person_id, append_to_response='combined_credits')
+        if not p.get('biography') and self.lang != 'en-US':
+            en = self.s.get(TMDB + 'person/%s' % person_id,
+                            params={'api_key': self.key, 'language': 'en-US'}, timeout=20).json()
+            p['biography'] = en.get('biography', '')
+        return p
 
     def omdb_ratings(self, imdb_id):
         if not (self.omdb and imdb_id):
@@ -60,3 +70,34 @@ class Meta:
 
 def img(path, size='w500'):
     return IMG + size + path if path else ''
+
+
+def trailer_key(d):
+    """Najlepszy zwiastun z YouTube: oficjalny trailer, najlepiej po polsku."""
+    vids = [v for v in d.get('videos', {}).get('results', []) if v.get('site') == 'YouTube' and v.get('key')]
+    if not vids:
+        return None
+
+    def score(v):
+        return (v.get('type') == 'Trailer', v.get('iso_639_1') == 'pl',
+                bool(v.get('official')), v.get('type') == 'Teaser', v.get('size') or 0)
+    return max(vids, key=score)['key']
+
+
+def cast_list(d, limit=30):
+    return [{'id': c.get('id'), 'name': c.get('name', ''), 'role': c.get('character', ''),
+             'thumb': img(c.get('profile_path'), 'w185')}
+            for c in d.get('credits', {}).get('cast', [])[:limit]]
+
+
+def crew(d):
+    """Reżyseria / twórcy i scenariusz."""
+    c = d.get('credits', {}).get('crew', [])
+    directors = [x['name'] for x in c if x.get('job') == 'Director']
+    if not directors:
+        directors = [x['name'] for x in d.get('created_by', [])]
+    writers = []
+    for x in c:
+        if x.get('job') in ('Screenplay', 'Writer', 'Novel') and x['name'] not in writers:
+            writers.append(x['name'])
+    return directors, writers[:4]

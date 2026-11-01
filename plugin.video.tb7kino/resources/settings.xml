@@ -7,6 +7,9 @@
         <setting id="min_size_mb" type="number" label="Ukryj pliki mniejsze niż (MB)" default="200"/>
         <setting id="strict_filter" type="bool" label="Pokazuj tylko pliki pasujące do tytułu" default="true"/>
     </category>
+    <category label="Odtwarzanie">
+        <setting id="prebuffer" type="enum" label="Bufor startowy (start w pauzie aż zbierze zapas)" values="Wyłączony|30 sekund|60 sekund|120 sekund" default="2"/>
+    </category>
     <category label="Metadane">
         <setting id="tmdb_key" type="text" label="Klucz TMDB API (v3)" default=""/>
         <setting id="omdb_key" type="text" label="Klucz OMDb (opcjonalnie, oceny IMDb/RT)" default=""/>

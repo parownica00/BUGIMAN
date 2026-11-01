@@ -11,9 +11,13 @@ import xbmcvfs
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'resources', 'lib'))
 from tb7 import TB7, TB7Error  # noqa: E402
-from meta import Meta, img  # noqa: E402
+from meta import Meta, img, trailer_key, cast_list, crew  # noqa: E402
 import match  # noqa: E402
 import vault  # noqa: E402
+import buffer  # noqa: E402
+
+YOUTUBE = 'plugin.video.youtube'
+PREBUFFER = [0, 30, 60, 120]
 
 ADDON = xbmcaddon.Addon()
 NAME = ADDON.getAddonInfo('name')
@@ -99,8 +103,20 @@ def set_info(li, info, kind='video'):
             tag.setEpisode(int(info['episode']))
         if info.get('imdb'):
             tag.setUniqueIDs({'imdb': info['imdb'], 'tmdb': str(info.get('tmdb', ''))}, 'tmdb')
+        if info.get('director'):
+            tag.setDirectors(info['director'])
+        if info.get('writer'):
+            tag.setWriters(info['writer'])
+        if info.get('trailer'):
+            tag.setTrailer(info['trailer'])
+        if info.get('cast'):
+            tag.setCast([xbmc.Actor(c['name'], c.get('role', ''), i, c.get('thumb', ''))
+                         for i, c in enumerate(info['cast'])])
     except AttributeError:  # Kodi 19
-        li.setInfo('video', {k: v for k, v in info.items() if k not in ('imdb', 'tmdb', 'votes')})
+        li.setInfo('video', {k: v for k, v in info.items() if k not in ('imdb', 'tmdb', 'votes', 'cast')})
+        if info.get('cast'):
+            li.setCast([{'name': c['name'], 'role': c.get('role', ''), 'thumbnail': c.get('thumb', '')}
+                        for c in info['cast']])
 
 
 def add(label, url, folder=True, info=None, art=None, playable=False, ctx=None):
@@ -143,6 +159,7 @@ def root():
     add('Szukaj bezpośrednio w TB7', u(action='raw_search'))
     add('Moje pliki na koncie TB7', u(action='library'))
     add('Stan konta TB7', u(action='account'), folder=False)
+    add('Ustaw buforowanie (płynne odtwarzanie)', u(action='cache_setup'), folder=False)
     add('Odblokuj klucze API hasłem', u(action='unlock'), folder=False)
     add('Sprawdź aktualizacje  [COLOR gray](wersja %s)[/COLOR]' % ADDON.getAddonInfo('version'),
         u(action='update'), folder=False)
@@ -164,10 +181,125 @@ def list_results(kind, data, nxt=None):
                 'votes': d.get('vote_count', 0), 'mediatype': 'movie' if k == 'movie' else 'tvshow',
                 'originaltitle': d.get('original_title') or d.get('original_name')}
         target = u(action='sources', tmdb=d['id']) if k == 'movie' else u(action='seasons', tmdb=d['id'])
-        add(label, target, info=info, art=art_for(d))
+        add(label, target, info=info, art=art_for(d), ctx=details_menu(k, d['id']))
     if nxt and data.get('page', 1) < data.get('total_pages', 1):
         add('[I]Następna strona >>[/I]', nxt)
     end('movies' if kind == 'movie' else 'tvshows')
+
+
+# ---- szczegóły: obsada, filmografia, zwiastun -------------------------------------
+def details_menu(kind, tmdb_id):
+    return [('Zwiastun', 'RunPlugin(%s)' % u(action='trailer', kind=kind, tmdb=tmdb_id)),
+            ('Obsada i ekipa', 'Container.Update(%s)' % u(action='cast', kind=kind, tmdb=tmdb_id))]
+
+
+def youtube_url(key):
+    return 'plugin://%s/play/?video_id=%s' % (YOUTUBE, key) if key else ''
+
+
+def describe(d, ratings=None):
+    """Opis do panelu bocznego: oceny, gatunki, reżyseria, obsada, fabuła."""
+    directors, writers = crew(d)
+    lines = []
+    if ratings:
+        lines.append('[B]%s[/B]' % ' | '.join(ratings))
+    meta_line = [g['name'] for g in d.get('genres', [])]
+    runtime = d.get('runtime') or (d.get('episode_run_time') or [None])[0]
+    if runtime:
+        meta_line.append('%d min' % runtime)
+    if meta_line:
+        lines.append(', '.join(meta_line))
+    if directors:
+        lines.append('[COLOR gray]Reżyseria:[/COLOR] ' + ', '.join(directors[:3]))
+    if writers:
+        lines.append('[COLOR gray]Scenariusz:[/COLOR] ' + ', '.join(writers))
+    actors = [c['name'] for c in cast_list(d, 6)]
+    if actors:
+        lines.append('[COLOR gray]Obsada:[/COLOR] ' + ', '.join(actors))
+    return '\n'.join(lines) + '\n\n' + (d.get('overview') or '')
+
+
+def full_info(d, extra=None):
+    directors, writers = crew(d)
+    info = {'title': d.get('title') or d.get('name'), 'plot': describe(d),
+            'year': (d.get('release_date') or d.get('first_air_date') or '')[:4],
+            'rating': d.get('vote_average'), 'votes': d.get('vote_count', 0),
+            'genre': [g['name'] for g in d.get('genres', [])], 'director': directors, 'writer': writers,
+            'cast': cast_list(d), 'trailer': youtube_url(trailer_key(d)),
+            'originaltitle': d.get('original_title') or d.get('original_name'),
+            'imdb': d.get('imdb_id') or d.get('external_ids', {}).get('imdb_id'), 'tmdb': d.get('id')}
+    info.update(extra or {})
+    return info
+
+
+def add_detail_items(kind, d):
+    """Pozycje 'Zwiastun' i 'Obsada i ekipa' na górze listy."""
+    info = full_info(d)
+    if info['trailer']:
+        add('[COLOR orange]▶ Zwiastun[/COLOR]', u(action='trailer', kind=kind, tmdb=d['id']),
+            folder=False, info=info, art=art_for(d))
+    add('[COLOR orange]Obsada i ekipa  (%d)[/COLOR]' % len(info['cast']), u(action='cast', kind=kind, tmdb=d['id']),
+        info=info, art=art_for(d))
+
+
+def show_cast(kind, tmdb_id):
+    d = meta().details(kind, tmdb_id)
+    directors, writers = crew(d)
+    for name in directors:
+        add('%s  [COLOR gray]reżyseria[/COLOR]' % name, u(action='noop'), folder=False,
+            info={'title': name}, art={'fanart': img(d.get('backdrop_path'), 'w1280')})
+    for c in cast_list(d, 60):
+        label = c['name'] + ('  [COLOR gray]jako %s[/COLOR]' % c['role'] if c['role'] else '')
+        add(label, u(action='person', pid=c['id']),
+            info={'title': c['name'], 'plot': 'Rola: %s' % (c['role'] or '-')},
+            art={'thumb': c['thumb'], 'poster': c['thumb'], 'icon': c['thumb'],
+                 'fanart': img(d.get('backdrop_path'), 'w1280')})
+    end('artists')
+
+
+def show_person(pid):
+    p = meta().person(pid)
+    photo = img(p.get('profile_path'), 'h632')
+    bio = p.get('biography') or 'Brak biografii.'
+    born = p.get('birthday') or ''
+    head = '%s%s' % (p.get('name', ''), ('  (ur. %s)' % born) if born else '')
+    add('[COLOR gold]ⓘ %s[/COLOR]' % head, u(action='plot', title=head, text=bio), folder=False,
+        info={'title': head, 'plot': bio}, art={'thumb': photo, 'poster': photo})
+    seen, items = set(), []
+    credits = p.get('combined_credits', {})
+    for c in credits.get('cast', []) + [x for x in credits.get('crew', []) if x.get('job') == 'Director']:
+        k = c.get('media_type')
+        if k not in ('movie', 'tv') or (k, c['id']) in seen:
+            continue
+        seen.add((k, c['id']))
+        items.append(c)
+    items.sort(key=lambda c: c.get('popularity') or 0, reverse=True)
+    for c in items[:80]:
+        k = c['media_type']
+        title = c.get('title') or c.get('name') or ''
+        year = (c.get('release_date') or c.get('first_air_date') or '')[:4]
+        role = c.get('character') or c.get('job') or ''
+        label = '%s (%s)  [COLOR gold]★ %.1f[/COLOR]%s%s' % (
+            title, year or '?', c.get('vote_average') or 0, '  [COLOR gray]serial[/COLOR]' if k == 'tv' else '',
+            ('  [COLOR gray]- %s[/COLOR]' % role) if role else '')
+        target = u(action='sources', tmdb=c['id']) if k == 'movie' else u(action='seasons', tmdb=c['id'])
+        add(label, target, info={'title': title, 'year': year, 'plot': c.get('overview', ''),
+                                 'rating': c.get('vote_average'), 'mediatype': 'movie' if k == 'movie' else 'tvshow'},
+            art=art_for(c), ctx=details_menu(k, c['id']))
+    end('movies')
+
+
+def play_trailer(kind, tmdb_id):
+    d = meta().details(kind, tmdb_id)
+    key = trailer_key(d)
+    if not key:
+        return notify('Brak zwiastuna dla tego tytułu')
+    if not xbmc.getCondVisibility('System.HasAddon(%s)' % YOUTUBE):
+        if xbmcgui.Dialog().yesno(NAME, 'Zwiastuny odtwarza dodatek YouTube.\nZainstalować go teraz?'):
+            xbmc.executebuiltin('InstallAddon(%s)' % YOUTUBE, True)
+        if not xbmc.getCondVisibility('System.HasAddon(%s)' % YOUTUBE):
+            return
+    xbmc.Player().play(youtube_url(key))
 
 
 def do_search(kind):
@@ -187,6 +319,7 @@ def do_list(kind, name):
 
 def seasons(tv_id):
     d = meta().details('tv', tv_id)
+    add_detail_items('tv', d)
     for s in d.get('seasons', []):
         if s.get('season_number', 0) == 0:
             continue
@@ -273,20 +406,18 @@ def sources(tmdb_id, season=None, episode=None):
     ratings = ['TMDB %.1f' % (d.get('vote_average') or 0)]
     for k, v in m.omdb_ratings(imdb).items():
         ratings.append('%s %s' % (k, v))
-    genres = ', '.join(g['name'] for g in d.get('genres', []))
-    plot = '[B]%s[/B]\n%s\n\n%s' % (' | '.join(ratings), genres, d.get('overview', ''))
+    plot = describe(d, ratings)
     head_title = titles[0] + (' %s' % ('S%02dE%02d' % (int(season), int(episode))) if season else ' (%s)' % year)
-    add('[COLOR gold]ⓘ %s  •  %s[/COLOR]' % (head_title, ' | '.join(ratings)),
-        u(action='plot', title=head_title, text=plot), folder=False,
-        info={'title': head_title, 'plot': plot}, art=art_for(d))
-    add('[COLOR gray]Transfer na koncie: %s  •  znaleziono: %d[/COLOR]' % (left or '?', len(found)),
-        u(action='noop'), folder=False)
-
-    base_info = {'title': titles[0], 'plot': plot, 'year': year, 'imdb': imdb, 'tmdb': tmdb_id,
-                 'rating': d.get('vote_average'), 'mediatype': 'episode' if season else 'movie',
-                 'genre': [g['name'] for g in d.get('genres', [])]}
+    base_info = full_info(d, {'title': titles[0], 'plot': plot, 'imdb': imdb, 'tmdb': tmdb_id,
+                              'mediatype': 'episode' if season else 'movie'})
     if season:
         base_info.update(season=int(season), episode=int(episode))
+    add('[COLOR gold]ⓘ %s  •  %s[/COLOR]' % (head_title, ' | '.join(ratings)),
+        u(action='plot', title=head_title, text=plot), folder=False,
+        info=dict(base_info, title=head_title), art=art_for(d))
+    add_detail_items(kind, d)
+    add('[COLOR gray]Transfer na koncie: %s  •  znaleziono: %d[/COLOR]' % (left or '?', len(found)),
+        u(action='noop'), folder=False)
     for r in found:
         q, _ = match.quality(r['filename'])
         lang = match.language(r['filename'])
@@ -349,6 +480,14 @@ def play(link, size, name):
         return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
     li = xbmcgui.ListItem(path=stream)
     xbmcplugin.setResolvedUrl(HANDLE, True, li)
+    buffer.prebuffer(prebuffer_seconds(), NAME)
+
+
+def prebuffer_seconds():
+    try:
+        return PREBUFFER[int(setting('prebuffer') or 0)]
+    except (ValueError, IndexError):
+        return 0
 
 
 def play_lib(link):
@@ -358,6 +497,7 @@ def play_lib(link):
         notify(str(e), xbmcgui.NOTIFICATION_ERROR)
         return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
     xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=stream))
+    buffer.prebuffer(prebuffer_seconds(), NAME)
 
 
 def account():
@@ -401,6 +541,14 @@ def router():
             account()
         elif a == 'plot':
             xbmcgui.Dialog().textviewer(ARGS.get('title', ''), ARGS.get('text', ''))
+        elif a == 'cast':
+            show_cast(ARGS['kind'], ARGS['tmdb'])
+        elif a == 'person':
+            show_person(ARGS['pid'])
+        elif a == 'trailer':
+            play_trailer(ARGS['kind'], ARGS['tmdb'])
+        elif a == 'cache_setup':
+            buffer.setup_cache(NAME)
         elif a == 'unlock':
             unlock_keys()
         elif a == 'update':
@@ -409,7 +557,7 @@ def router():
             ADDON.openSettings()
     except ValueError as e:  # brak klucza TMDB itp.
         xbmcgui.Dialog().ok(NAME, str(e))
-        if a in ('search', 'list', 'seasons', 'episodes', 'sources'):
+        if a in ('search', 'list', 'seasons', 'episodes', 'sources', 'cast', 'person'):
             xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
     except Exception as e:
         xbmc.log('[%s] %r' % (NAME, e), xbmc.LOGERROR)

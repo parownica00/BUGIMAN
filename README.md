@@ -12,6 +12,9 @@ Wyszukiwarka filmów i seriali oparta o TMDB (polskie opisy, plakaty, oceny), kt
 ## Jak działa
 - Menu: wyszukiwanie filmów i seriali, listy „na topie”, „popularne” i „najwyżej oceniane”, bezpośrednie wyszukiwanie w TB7, pliki na koncie, stan transferu.
 - Po wybraniu tytułu dodatek szuka w TB7 po polskim i oryginalnym tytule z rokiem (dla seriali `SxxEyy`), filtruje wyniki, sortuje je wg jakości i rozmiaru oraz oznacza wersję (Lektor, Dubbing, Napisy).
+- Szczegóły tytułu: opis z reżyserią i obsadą, **Obsada i ekipa** (zdjęcia, role; aktor → jego filmografia), **Zwiastun** z YouTube (najpierw polski). Te same opcje są w menu kontekstowym na liście filmów, a ekran Informacje w Kodi pokazuje obsadę i przycisk zwiastunu.
+- **Bufor startowy** (Ustawienia → Odtwarzanie): film startuje w pauzie, aż zbierze się 30/60/120 s zapasu, potem rusza sam. Anuluj = odtwarzaj od razu.
+- **Ustaw buforowanie**: dobiera pamięć bufora Kodi do RAM urządzenia (Kodi 20+ przez ustawienia, Kodi 19 przez `advancedsettings.xml`). Wymaga restartu Kodi.
 - Przed pobraniem pliku dodatek pyta, ile transferu zużyje. Pliki, które już są na koncie, oznacza jako **NA KONCIE** i odtwarza bez dodatkowego transferu.
 
 ## Klucze API na hasło
