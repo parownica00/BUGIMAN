@@ -457,11 +457,36 @@ def library():
         files = tb7().library()
     except TB7Error as e:
         return error(str(e))
+    files.sort(key=lambda f: (f['expired'], -(f['expires_at'].timestamp() if f['expires_at'] else 0)))
     for f in files:
-        add('%s  [COLOR gray]wygasa: %s[/COLOR]' % (f['filename'], f['expires'] or '?'),
-            u(action='play_lib', link=f['url'], name=f['filename']), folder=False, playable=True,
-            info={'title': f['filename']})
+        if f['expired']:
+            label = '[COLOR gray]%s[/COLOR]  [COLOR red]wygasł %s - kliknij, by pobrać ponownie[/COLOR]' % (
+                f['filename'], f['expires'])
+        else:
+            label = '%s  [COLOR gray]ważny do: %s[/COLOR]' % (f['filename'], f['expires'] or '?')
+        add(label, u(action='play_lib', link=f['url'], name=f['filename'], expired=int(f['expired'])),
+            folder=False, playable=True, info={'title': f['filename']})
     end('videos')
+
+
+def redownload(name, why):
+    """Wygasły plik z konta: znajduje go ponownie w TB7 i pobiera (zużywa transfer)."""
+    if not name:
+        return play_failed('Ten plik na koncie już nie działa: [B]%s[/B]\n'
+                           'Wyszukaj film jeszcze raz, żeby pobrać go ponownie.' % why)
+    stem = re.sub(r'\.(mkv|mp4|avi|mov|mpg|ts|m2ts|mts)$', '', name, flags=re.I)
+    try:
+        rows = tb7().search(re.sub(r'[._]+', ' ', stem), max_pages=3)
+    except TB7Error as e:
+        return play_failed(str(e))
+    same = [r for r in rows if match.norm(r['filename']) == match.norm(name)]
+    if not same:
+        return play_failed('Plik wygasł (%s), a TB7 nie znajduje go już pod tą samą nazwą.\n'
+                           'Wyszukaj film w wyszukiwarce i wybierz inny plik.' % why)
+    r = same[0]
+    log('ponowne pobranie wygasłego pliku: %s (%s)' % (name, r['url']))
+    play(r['url'], r['size'], r['filename'], skip_owned=True,
+         note='[COLOR orange]Plik na koncie wygasł - trzeba pobrać ponownie.[/COLOR]\n')
 
 
 def log(msg, level=xbmc.LOGINFO):
@@ -474,11 +499,12 @@ def play_failed(msg):
     xbmcgui.Dialog().ok(NAME, msg)
 
 
-def play(link, size, name):
+def play(link, size, name, skip_owned=False, note=''):
     try:
         c = tb7()
-        stream, note = None, ''
-        owned = [x for x in c.library() if match.norm(x['filename']) == match.norm(name)]
+        stream = None
+        owned = [] if skip_owned else [
+            x for x in c.library() if match.norm(x['filename']) == match.norm(name) and not x['expired']]
         for item in owned:  # plik już na koncie - bez zużywania transferu, o ile link jeszcze żyje
             candidate = c.playable(item['url'])
             ok, why = c.check(candidate)
@@ -529,15 +555,16 @@ def prebuffer_seconds():
         return 0
 
 
-def play_lib(link, name=''):
+def play_lib(link, name='', expired=False):
+    if expired:
+        return redownload(name, 'termin minął')
     try:
         c = tb7()
         stream = c.playable(link)
         ok, why = c.check(stream)
         log('plik na koncie: %s -> %s' % (link, why))
         if not ok:
-            return play_failed('Ten plik na koncie już nie działa: [B]%s[/B]\n'
-                               'Wyszukaj film jeszcze raz, żeby pobrać go ponownie.' % why)
+            return redownload(name, why)
     except TB7Error as e:
         return play_failed(str(e))
     xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=via_proxy(stream, name)))
@@ -580,7 +607,7 @@ def router():
         elif a == 'play':
             play(ARGS['link'], ARGS.get('size', '?'), ARGS.get('name', ''))
         elif a == 'play_lib':
-            play_lib(ARGS['link'], ARGS.get('name', ''))
+            play_lib(ARGS['link'], ARGS.get('name', ''), ARGS.get('expired') == '1')
         elif a == 'account':
             account()
         elif a == 'plot':

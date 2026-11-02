@@ -12,6 +12,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime
 from html import unescape
 
 import requests
@@ -30,6 +31,19 @@ VIDEO_EXT = ('.mkv', '.mp4', '.avi', '.mov', '.mpg', '.ts', '.m2ts', '.mts')
 
 class TB7Error(Exception):
     pass
+
+
+def parse_expiry(text):
+    """'20:47 02.11.2026' (albo '02.11.2026 20:47') -> datetime, inaczej None."""
+    t = re.search(r'(\d{1,2}):(\d{2})', text or '')
+    d = re.search(r'(\d{1,2})\.(\d{1,2})\.(\d{4})', text or '')
+    if not d:
+        return None
+    try:
+        return datetime(int(d.group(3)), int(d.group(2)), int(d.group(1)),
+                        int(t.group(1)) if t else 23, int(t.group(2)) if t else 59)
+    except ValueError:
+        return None
 
 
 def _strip(html):
@@ -151,8 +165,11 @@ class TB7:
                 continue
             url = unescape(link.group(1))
             name = cells[1] if len(cells) > 1 and cells[1] else url.rstrip('/').split('/')[-1]
-            out.append({'filename': name, 'url': url,
-                        'expires': cells[3] if len(cells) > 3 else ''})
+            name = re.sub(r'^(?:\.\.\.|…)?/?', '', name.replace('\\', '/').split('/')[-1]).strip()
+            expires = cells[3] if len(cells) > 3 else ''
+            when = parse_expiry(expires)
+            out.append({'filename': name, 'url': url, 'expires': expires, 'expires_at': when,
+                        'expired': bool(when and when <= datetime.now())})
         return out
 
     # ---- pobranie / link do odtwarzania -------------------------------

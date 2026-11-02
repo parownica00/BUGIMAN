@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addons>
-<addon id="plugin.video.tb7kino" name="TB7 Kino" version="1.0.5" provider-name="Patryk">
+<addon id="plugin.video.tb7kino" name="TB7 Kino" version="1.0.6" provider-name="Patryk">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
         <import addon="script.module.requests"/>
