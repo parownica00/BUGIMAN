@@ -13,10 +13,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 CHUNK = 64 * 1024
 DEAD = (401, 403, 404, 410)
 OPEN_ATTEMPTS = 6
+START_ATTEMPTS = 3  # na starcie krócej, żeby nie trzymać kółka ładowania
 MAX_RESUMES = 20
 PASS_HEADERS = ('Content-Type', 'Last-Modified', 'ETag')
 
@@ -43,6 +47,8 @@ class Stream:
         self.log = log
         self.lock = threading.Lock()
         self.session = requests.Session()
+        self.session.verify = False  # wadliwe certyfikaty hostingów - tak samo jak Kodi z verifypeer=false
+        self.last_error = ''
 
     def _reresolve(self):
         if not self.resolver:
@@ -59,17 +65,18 @@ class Stream:
         self.log('nowy link z konta TB7')
         return True
 
-    def open(self, start, end=None):
+    def open(self, start, end=None, attempts=None):
         """GET z Range bytes=start-end; ponawia, w razie potrzeby pobiera nowy link."""
         rng = 'bytes=%d-%s' % (start, '' if end is None else end)
         resolved, delay = False, 1
-        for attempt in range(OPEN_ATTEMPTS):
+        attempts = attempts or OPEN_ATTEMPTS
+        for attempt in range(attempts):
             with self.lock:
                 url, headers = self.url, dict(self.headers)
             headers['Range'] = rng
             status = None
             try:
-                r = self.session.get(url, headers=headers, stream=True, timeout=(15, 30))
+                r = self.session.get(url, headers=headers, stream=True, timeout=(15, 30), verify=False)
                 status = r.status_code
                 if status in (200, 206):
                     if status == 200 and start > 0:
@@ -77,10 +84,14 @@ class Stream:
                         raise UpstreamError('serwer nie obsługuje wznawiania (Range)')
                     return r
                 r.close()
+                self.last_error = 'HTTP %d' % status
                 self.log('%s -> HTTP %d' % (rng, status))
             except requests.RequestException as e:
+                self.last_error = type(e).__name__
                 self.log('%s -> %r' % (rng, e))
-            if not resolved and (status in DEAD or attempt >= 2):
+            if attempt == attempts - 1:
+                break
+            if not resolved and (status in DEAD or attempt >= 1):
                 resolved = True
                 if self._reresolve():
                     continue
@@ -113,9 +124,10 @@ class Handler(BaseHTTPRequestHandler):
         start = int(client_range.group(1)) if client_range else 0
         end = int(client_range.group(2)) if client_range and client_range.group(2) else None
         try:
-            r = st.open(start, end)
+            r = st.open(start, end, START_ATTEMPTS)
         except UpstreamError as e:
-            self.server.log('start %d: %s' % (start, e))
+            self.server.log('start %d: %s (%s)' % (start, e, st.last_error))
+            self.server.notify('Serwer pliku nie odpowiada (%s)' % (st.last_error or e))
             self.send_error(502, 'Upstream unavailable')  # nagłówek HTTP musi być w ASCII
             return
 
@@ -191,10 +203,11 @@ class ProxyServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, lookup, log=print, port=0):
+    def __init__(self, lookup, log=print, port=0, notify=None):
         ThreadingHTTPServer.__init__(self, ('127.0.0.1', port), Handler)
         self.lookup = lookup
         self.log = log
+        self.notify = notify or (lambda msg: None)
 
     @property
     def port(self):

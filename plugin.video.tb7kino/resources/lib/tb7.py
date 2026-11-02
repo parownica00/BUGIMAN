@@ -15,6 +15,9 @@ import time
 from html import unescape
 
 import requests
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE = 'https://www.tb7.pl/'
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -170,11 +173,13 @@ class TB7:
         return self.playable(hrefs[1] if len(hrefs) > 1 else hrefs[0])
 
     def playable(self, link):
+        """Link dla odtwarzacza. Serwery hostingów (np. twojplik) mają wadliwe certyfikaty SSL,
+        więc - jak FanFilm - nie weryfikujemy ich przy pobieraniu samego wideo."""
         link = unescape(link).replace('%2F', '-')
         try:
-            h = self.s.head(link, allow_redirects=False, timeout=20)
+            h = self.s.head(link, allow_redirects=False, timeout=20, verify=False)
             if h.status_code in (301, 302) and h.headers.get('Location'):
                 link = h.headers['Location']
         except Exception:
             pass
-        return link + '|User-Agent=' + requests.utils.quote(UA)
+        return link + '|User-Agent=' + requests.utils.quote(UA) + '&Connection=close&verifypeer=false'

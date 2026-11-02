@@ -26,10 +26,18 @@ def log(msg):
     xbmc.log('[TB7 Kino proxy] %s' % msg, xbmc.LOGINFO)
 
 
+KODI_OPTIONS = ('verifypeer', 'connection', 'seekable', 'noshout')
+
+
 def split_stream(stream):
-    """'url|Naglowek=wartosc&...' -> (url, {naglowki})"""
+    """'url|Naglowek=wartosc&...' -> (url, {naglowki HTTP}) bez opcji samego Kodi."""
     url, _, hdr = stream.partition('|')
-    return url, dict(parse_qsl(hdr))
+    return url, {k: v for k, v in parse_qsl(hdr) if k.lower() not in KODI_OPTIONS}
+
+
+def notify(msg):
+    xbmc.log('[TB7 Kino proxy] %s' % msg, xbmc.LOGERROR)
+    xbmcgui.Dialog().notification('TB7 Kino', msg, xbmcgui.NOTIFICATION_ERROR, 6000)
 
 
 def make_resolver(name):
@@ -63,7 +71,7 @@ def lookup(token):
 
 
 def main():
-    server = proxy.ProxyServer(lookup, log)
+    server = proxy.ProxyServer(lookup, log, notify=notify)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     WIN.setProperty(PROP + 'port', str(server.port))
     log('działa na porcie %d' % server.port)
