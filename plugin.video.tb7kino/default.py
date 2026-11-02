@@ -505,11 +505,12 @@ def play(link, size, name, skip_owned=False, note=''):
         stream = None
         owned = [] if skip_owned else [
             x for x in c.library() if match.norm(x['filename']) == match.norm(name) and not x['expired']]
+        state = 'ok'
         for item in owned:  # plik już na koncie - bez zużywania transferu, o ile link jeszcze żyje
             candidate = c.playable(item['url'])
-            ok, why = c.check(candidate)
+            state, why = c.check(candidate)
             log('plik na koncie: %s -> %s' % (item['url'], why))
-            if ok:
+            if state != 'dead':
                 stream = candidate
                 break
             note = '[COLOR orange]Plik na koncie wygasł (%s) - trzeba pobrać ponownie.[/COLOR]\n' % why
@@ -521,15 +522,24 @@ def play(link, size, name, skip_owned=False, note=''):
                         % (note, name, size, left or '?')):
                     return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             stream = c.get_stream(link)
-            ok, why = c.check(stream)
+            state, why = c.check(stream)
             log('nowy link: %s -> %s' % (stream.split('|')[0], why))
-            if not ok:
+            if state == 'dead':
                 return play_failed('TB7 wygenerował link, ale serwer pliku odpowiada: [B]%s[/B]\n'
                                    'Spróbuj inny plik z listy.' % why)
     except TB7Error as e:
         return play_failed(str(e))
-    li = xbmcgui.ListItem(path=via_proxy(stream, name))
-    xbmcplugin.setResolvedUrl(HANDLE, True, li)
+    return start_playback(stream, name, state)
+
+
+def start_playback(stream, name, state='ok'):
+    """Linki, które dają Pythonowi stronę HTML, idą do Kodi bezpośrednio (bez proxy)."""
+    if state == 'html':
+        log('link daje stronę HTML zapytaniu z Pythona - odtwarzam bez proxy', xbmc.LOGWARNING)
+        path = stream
+    else:
+        path = via_proxy(stream, name)
+    xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=path))
     buffer.prebuffer(prebuffer_seconds(), NAME)
 
 
@@ -561,14 +571,13 @@ def play_lib(link, name='', expired=False):
     try:
         c = tb7()
         stream = c.playable(link)
-        ok, why = c.check(stream)
+        state, why = c.check(stream)
         log('plik na koncie: %s -> %s' % (link, why))
-        if not ok:
+        if state == 'dead':
             return redownload(name, why)
     except TB7Error as e:
         return play_failed(str(e))
-    xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=via_proxy(stream, name)))
-    buffer.prebuffer(prebuffer_seconds(), NAME)
+    return start_playback(stream, name, state)
 
 
 def account():

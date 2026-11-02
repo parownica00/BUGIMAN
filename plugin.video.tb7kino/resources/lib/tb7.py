@@ -203,9 +203,11 @@ class TB7:
         return link + '|User-Agent=' + requests.utils.quote(UA) + '&Connection=close&verifypeer=false'
 
     def check(self, stream):
-        """Sprawdza, czy link do wideo działa: (True, opis) albo (False, przyczyna).
+        """Sprawdza link do wideo: ('ok'|'html'|'dead', opis).
 
-        Pobiera tylko pierwszy bajt (Range 0-0), więc praktycznie nie zużywa transferu.
+        'dead' tylko przy twardym błędzie (HTTP 4xx/5xx, brak połączenia). 'html' znaczy, że
+        serwer dał Pythonowi stronę zamiast pliku - Kodi często i tak dostaje plik, więc taki
+        link idzie do Kodi bezpośrednio. Pobiera najwyżej kilka KB (Range 0-0).
         """
         url = stream.split('|')[0]
         host = urlparse(url).netloc or url[:40]
@@ -213,11 +215,19 @@ class TB7:
             r = self.s.get(url, headers={'Range': 'bytes=0-0'}, stream=True, timeout=25,
                            verify=False, allow_redirects=True)
             status, ctype = r.status_code, (r.headers.get('Content-Type') or '').lower()
+            body = b''
+            if 'text/html' in ctype:
+                try:
+                    body = r.raw.read(4096, decode_content=True) or b''
+                except Exception:
+                    pass
             r.close()
         except requests.RequestException as e:
-            return False, '%s (%s)' % (type(e).__name__, host)
+            return 'dead', '%s (%s)' % (type(e).__name__, host)
         if status >= 400:
-            return False, 'HTTP %d (%s)' % (status, host)
+            return 'dead', 'HTTP %d (%s)' % (status, host)
         if 'text/html' in ctype:
-            return False, 'strona zamiast pliku (%s)' % host
-        return True, 'HTTP %d (%s)' % (status, host)
+            title = re.search(rb'<title[^>]*>(.*?)</title>', body, re.S | re.I)
+            title = unescape(title.group(1).decode('utf-8', 'replace')).strip()[:80] if title else ''
+            return 'html', 'strona HTML (%s)%s' % (host, (': ' + title) if title else '')
+        return 'ok', 'HTTP %d (%s)' % (status, host)
