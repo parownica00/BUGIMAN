@@ -9,6 +9,7 @@
     </category>
     <category label="Odtwarzanie">
         <setting id="prebuffer" type="enum" label="Bufor startowy (start w pauzie aż zbierze zapas)" values="Wyłączony|30 sekund|60 sekund|120 sekund" default="2"/>
+        <setting id="use_proxy" type="bool" label="Odporne odtwarzanie (wznawia zerwane połączenie, np. po pauzie)" default="true"/>
     </category>
     <category label="Metadane">
         <setting id="tmdb_key" type="text" label="Klucz TMDB API (v3)" default=""/>

@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
+import hashlib
+import json
 import os
+import re
 import sys
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, quote, urlencode
 
 import xbmc
 import xbmcaddon
@@ -456,7 +459,7 @@ def library():
         return error(str(e))
     for f in files:
         add('%s  [COLOR gray]wygasa: %s[/COLOR]' % (f['filename'], f['expires'] or '?'),
-            u(action='play_lib', link=f['url']), folder=False, playable=True,
+            u(action='play_lib', link=f['url'], name=f['filename']), folder=False, playable=True,
             info={'title': f['filename']})
     end('videos')
 
@@ -478,9 +481,24 @@ def play(link, size, name):
     except TB7Error as e:
         notify(str(e), xbmcgui.NOTIFICATION_ERROR)
         return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
-    li = xbmcgui.ListItem(path=stream)
+    li = xbmcgui.ListItem(path=via_proxy(stream, name))
     xbmcplugin.setResolvedUrl(HANDLE, True, li)
     buffer.prebuffer(prebuffer_seconds(), NAME)
+
+
+def via_proxy(stream, name):
+    """Kieruje odtwarzanie przez lokalne proxy, które wznawia zerwane połączenia."""
+    if setting('use_proxy') == 'false':
+        return stream
+    win = xbmcgui.Window(10000)
+    port = win.getProperty('tb7kino.port')
+    if not port:
+        xbmc.log('[%s] proxy nie działa - odtwarzam bezpośrednio' % NAME, xbmc.LOGWARNING)
+        return stream
+    token = hashlib.sha1(stream.encode('utf-8')).hexdigest()[:16]
+    win.setProperty('tb7kino.s.' + token, json.dumps({'stream': stream, 'name': name}))
+    fname = quote(re.sub(r'[^\w.\-]+', '_', name or '') or 'video.mkv')
+    return 'http://127.0.0.1:%s/play/%s/%s' % (port, token, fname)
 
 
 def prebuffer_seconds():
@@ -490,13 +508,13 @@ def prebuffer_seconds():
         return 0
 
 
-def play_lib(link):
+def play_lib(link, name=''):
     try:
         stream = tb7().playable(link)
     except TB7Error as e:
         notify(str(e), xbmcgui.NOTIFICATION_ERROR)
         return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
-    xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=stream))
+    xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=via_proxy(stream, name)))
     buffer.prebuffer(prebuffer_seconds(), NAME)
 
 
@@ -536,7 +554,7 @@ def router():
         elif a == 'play':
             play(ARGS['link'], ARGS.get('size', '?'), ARGS.get('name', ''))
         elif a == 'play_lib':
-            play_lib(ARGS['link'])
+            play_lib(ARGS['link'], ARGS.get('name', ''))
         elif a == 'account':
             account()
         elif a == 'plot':
