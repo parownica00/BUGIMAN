@@ -15,6 +15,7 @@ import time
 from html import unescape
 
 import requests
+from urllib.parse import urljoin, urlparse
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -178,8 +179,28 @@ class TB7:
         link = unescape(link).replace('%2F', '-')
         try:
             h = self.s.head(link, allow_redirects=False, timeout=20, verify=False)
-            if h.status_code in (301, 302) and h.headers.get('Location'):
-                link = h.headers['Location']
+            if h.status_code in (301, 302, 303, 307, 308) and h.headers.get('Location'):
+                link = urljoin(link, h.headers['Location'])
         except Exception:
             pass
         return link + '|User-Agent=' + requests.utils.quote(UA) + '&Connection=close&verifypeer=false'
+
+    def check(self, stream):
+        """Sprawdza, czy link do wideo działa: (True, opis) albo (False, przyczyna).
+
+        Pobiera tylko pierwszy bajt (Range 0-0), więc praktycznie nie zużywa transferu.
+        """
+        url = stream.split('|')[0]
+        host = urlparse(url).netloc or url[:40]
+        try:
+            r = self.s.get(url, headers={'Range': 'bytes=0-0'}, stream=True, timeout=25,
+                           verify=False, allow_redirects=True)
+            status, ctype = r.status_code, (r.headers.get('Content-Type') or '').lower()
+            r.close()
+        except requests.RequestException as e:
+            return False, '%s (%s)' % (type(e).__name__, host)
+        if status >= 400:
+            return False, 'HTTP %d (%s)' % (status, host)
+        if 'text/html' in ctype:
+            return False, 'strona zamiast pliku (%s)' % host
+        return True, 'HTTP %d (%s)' % (status, host)

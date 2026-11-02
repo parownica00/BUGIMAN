@@ -464,23 +464,44 @@ def library():
     end('videos')
 
 
+def log(msg, level=xbmc.LOGINFO):
+    xbmc.log('[%s] %s' % (NAME, msg), level)
+
+
+def play_failed(msg):
+    log('odtwarzanie: ' + msg, xbmc.LOGERROR)
+    xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+    xbmcgui.Dialog().ok(NAME, msg)
+
+
 def play(link, size, name):
     try:
         c = tb7()
+        stream, note = None, ''
         owned = [x for x in c.library() if match.norm(x['filename']) == match.norm(name)]
-        if owned:  # plik już na koncie - bez zużywania transferu
-            stream = c.playable(owned[0]['url'])
-        else:
+        for item in owned:  # plik już na koncie - bez zużywania transferu, o ile link jeszcze żyje
+            candidate = c.playable(item['url'])
+            ok, why = c.check(candidate)
+            log('plik na koncie: %s -> %s' % (item['url'], why))
+            if ok:
+                stream = candidate
+                break
+            note = '[COLOR orange]Plik na koncie wygasł (%s) - trzeba pobrać ponownie.[/COLOR]\n' % why
+        if stream is None:
             if setting('confirm_buy') == 'true':
                 left = c.account_info()
                 if not xbmcgui.Dialog().yesno(
-                        NAME, '%s\n\nPobranie zużyje [B]%s[/B] transferu.\nPozostało: [B]%s[/B]\n\nKontynuować?'
-                        % (name, size, left or '?')):
+                        NAME, '%s%s\n\nPobranie zużyje [B]%s[/B] transferu.\nPozostało: [B]%s[/B]\n\nKontynuować?'
+                        % (note, name, size, left or '?')):
                     return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             stream = c.get_stream(link)
+            ok, why = c.check(stream)
+            log('nowy link: %s -> %s' % (stream.split('|')[0], why))
+            if not ok:
+                return play_failed('TB7 wygenerował link, ale serwer pliku odpowiada: [B]%s[/B]\n'
+                                   'Spróbuj inny plik z listy.' % why)
     except TB7Error as e:
-        notify(str(e), xbmcgui.NOTIFICATION_ERROR)
-        return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+        return play_failed(str(e))
     li = xbmcgui.ListItem(path=via_proxy(stream, name))
     xbmcplugin.setResolvedUrl(HANDLE, True, li)
     buffer.prebuffer(prebuffer_seconds(), NAME)
@@ -510,10 +531,15 @@ def prebuffer_seconds():
 
 def play_lib(link, name=''):
     try:
-        stream = tb7().playable(link)
+        c = tb7()
+        stream = c.playable(link)
+        ok, why = c.check(stream)
+        log('plik na koncie: %s -> %s' % (link, why))
+        if not ok:
+            return play_failed('Ten plik na koncie już nie działa: [B]%s[/B]\n'
+                               'Wyszukaj film jeszcze raz, żeby pobrać go ponownie.' % why)
     except TB7Error as e:
-        notify(str(e), xbmcgui.NOTIFICATION_ERROR)
-        return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+        return play_failed(str(e))
     xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=via_proxy(stream, name)))
     buffer.prebuffer(prebuffer_seconds(), NAME)
 
