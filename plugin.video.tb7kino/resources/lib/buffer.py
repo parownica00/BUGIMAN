@@ -182,3 +182,47 @@ def setup_cache(addon_name):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(xml)
     dlg.ok(addon_name, 'Zapisano. Zrestartuj Kodi, żeby nowy bufor zaczął działać.')
+
+
+# ---- cierpliwe połączenia sieciowe Kodi (advancedsettings.xml) --------------------
+NETWORK = {
+    'curlclienttimeout': '30',   # s na nawiązanie połączenia (domyślnie 10)
+    'curllowspeedtime': '300',   # s bez danych, zanim Kodi zerwie odtwarzanie (domyślnie 20)
+    'curlretries': '10',         # ponowne próby po błędzie sieci (domyślnie 2)
+}
+
+
+def ensure_network(path=None):
+    """Dopisuje/aktualizuje <network> w advancedsettings.xml. Zwraca True, gdy plik się zmienił
+    (wtedy potrzebny jest jednorazowy restart Kodi)."""
+    path = path or xbmcvfs.translatePath('special://userdata/advancedsettings.xml')
+    xml = ''
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            xml = f.read()
+    original = xml
+    if '<advancedsettings' not in xml:
+        xml = '<advancedsettings version="1.0">\n</advancedsettings>\n'
+    net = re.search(r'<network>(.*?)</network>', xml, re.S)
+    body = net.group(1) if net else '\n'
+    for tag, value in NETWORK.items():
+        current = re.search(r'<%s>\s*(\d+)\s*</%s>' % (tag, tag), body)
+        if current and int(current.group(1)) >= int(value):
+            continue  # użytkownik ma już równie cierpliwe (albo większe) ustawienie
+        if current:
+            body = body.replace(current.group(0), '<%s>%s</%s>' % (tag, value, tag))
+        else:
+            body = body.rstrip() + '\n        <%s>%s</%s>\n    ' % (tag, value, tag)
+    block = '<network>%s</network>' % body
+    if net:
+        xml = xml.replace(net.group(0), block)
+    else:
+        xml = re.sub(r'</advancedsettings>', '    %s\n</advancedsettings>' % block, xml, count=1)
+    if xml == original:
+        return False
+    if original and not os.path.exists(path + '.tb7kino.bak'):
+        with open(path + '.tb7kino.bak', 'w', encoding='utf-8') as f:
+            f.write(original)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(xml)
+    return True

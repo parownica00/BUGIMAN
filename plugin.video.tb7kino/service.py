@@ -13,6 +13,7 @@ import xbmcvfs
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'resources', 'lib'))
 import proxy  # noqa: E402
+import buffer  # noqa: E402
 import match  # noqa: E402
 from tb7 import TB7  # noqa: E402
 
@@ -35,9 +36,24 @@ def split_stream(stream):
     return url, {k: v for k, v in parse_qsl(hdr) if k.lower() not in KODI_OPTIONS}
 
 
-def notify(msg):
-    xbmc.log('[TB7 Kino proxy] %s' % msg, xbmc.LOGERROR)
-    xbmcgui.Dialog().notification('TB7 Kino', msg, xbmcgui.NOTIFICATION_ERROR, 6000)
+def notify(msg, error=True):
+    xbmc.log('[TB7 Kino proxy] %s' % msg, xbmc.LOGWARNING if error else xbmc.LOGINFO)
+    xbmcgui.Dialog().notification('TB7 Kino', msg,
+                                  xbmcgui.NOTIFICATION_WARNING if error else xbmcgui.NOTIFICATION_INFO, 6000)
+
+
+def tune_kodi_network():
+    """Jednorazowo: Kodi ma czekać na dane zamiast zamykać film po 20 s bez danych."""
+    if xbmcaddon.Addon().getSetting('use_proxy') == 'false':
+        return
+    try:
+        if buffer.ensure_network():
+            log('zapisano ustawienia sieci w advancedsettings.xml')
+            xbmcgui.Dialog().notification(
+                'TB7 Kino', 'Zrestartuj Kodi raz, żeby filmy się nie zamykały przy zerwaniu sieci',
+                xbmcgui.NOTIFICATION_INFO, 10000)
+    except Exception as e:
+        log('ustawienia sieci: %r' % (e,))
 
 
 def make_resolver(name):
@@ -72,6 +88,7 @@ def lookup(token):
 
 
 def main():
+    tune_kodi_network()
     server = proxy.ProxyServer(lookup, log, notify=notify)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     WIN.setProperty(PROP + 'port', str(server.port))
