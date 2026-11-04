@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+import time
 from urllib.parse import parse_qsl, quote, urlencode
 
 import xbmc
@@ -394,7 +395,8 @@ def sources(tmdb_id, season=None, episode=None):
                     seen.add(r['url'])
                     found.append(r)
         dlg.close()
-        lib_names = {match.norm(x['filename']) for x in c.library()}
+        lib = [x for x in c.library() if not x['expired']]
+        mine = bought_load()
         left = c.account_info()
     except TB7Error as e:
         return error(str(e))
@@ -424,7 +426,8 @@ def sources(tmdb_id, season=None, episode=None):
     for r in found:
         q, _ = match.quality(r['filename'])
         lang = match.language(r['filename'])
-        on_acc = match.norm(r['filename']) in lib_names
+        on_acc = r['url'] in mine or any(match.same_file(x['filename'], r['filename']) or
+                                         match.same_file(x['url_name'], r['filename']) for x in lib)
         label = '[B]%s[/B] %s | %s | %s%s\n%s' % (
             q, ('[COLOR lime]%s[/COLOR]' % lang) if lang else '', r['size'], r['host'],
             '  [COLOR cyan]NA KONCIE[/COLOR]' if on_acc else '', r['filename'])
@@ -463,7 +466,7 @@ def library():
             label = '[COLOR gray]%s[/COLOR]  [COLOR red]wygasł %s - kliknij, by pobrać ponownie[/COLOR]' % (
                 f['filename'], f['expires'])
         else:
-            label = '%s  [COLOR gray]ważny do: %s[/COLOR]' % (f['filename'], f['expires'] or '?')
+            label = '%s  [COLOR lime]ważny do %s[/COLOR]' % (f['filename'], f['expires'] or '?')
         add(label, u(action='play_lib', link=f['url'], name=f['filename'], expired=int(f['expired'])),
             folder=False, playable=True, info={'title': f['filename']})
     end('videos')
@@ -499,21 +502,82 @@ def play_failed(msg):
     xbmcgui.Dialog().ok(NAME, msg)
 
 
+# ---- pliki kupione przez addon (ochrona przed ponownym zużyciem transferu) ------------
+BOUGHT = os.path.join(PROFILE, 'bought.json')
+VALID_SECONDS = 24 * 3600
+
+
+def bought_load():
+    try:
+        with open(BOUGHT, encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    now = time.time()
+    return {k: v for k, v in data.items() if now - v.get('time', 0) < VALID_SECONDS}
+
+
+def bought_save(link, name, href):
+    data = bought_load()
+    data[link] = {'filename': name, 'href': href, 'time': time.time()}
+    try:
+        os.makedirs(PROFILE, exist_ok=True)
+        with open(BOUGHT, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+    except Exception as e:
+        log('nie zapisano bought.json: %r' % e, xbmc.LOGWARNING)
+
+
+def owned_candidates(c, link, name):
+    """Linki do pliku, który już jest na koncie i jest ważny: [(url, ważny_do)]."""
+    out = []
+    mine = bought_load().get(link)
+    if mine and mine.get('href'):
+        until = time.strftime('%H:%M %d.%m', time.localtime(mine['time'] + VALID_SECONDS))
+        out.append((mine['href'], until))
+    for x in c.library():
+        if x['expired']:
+            continue
+        if match.same_file(x['filename'], name) or match.same_file(x['url_name'], name):
+            if x['url'] not in [u_ for u_, _ in out]:
+                out.append((x['url'], x['expires']))
+    return out
+
+
+def try_owned(c, candidates):
+    """Zwraca (stream, state) dla pierwszego działającego linku z konta albo (None, przyczyna)."""
+    why = ''
+    for url, _until in candidates:
+        stream = c.playable(url)
+        for attempt in range(2):
+            state, why = c.check(stream)
+            log('plik na koncie: %s -> %s' % (url, why))
+            if state != 'dead':
+                return stream, state
+            time.sleep(1.5)
+    return None, why
+
+
+def ask_owned_dead(name, until, why, size):
+    """Plik jest na koncie i ważny, a serwer odpowiada błędem: domyślnie NIE kupujemy ponownie."""
+    return xbmcgui.Dialog().yesno(
+        NAME, '[B]%s[/B]\nPlik jest na Twoim koncie (ważny do %s), ale serwer odpowiada: %s.\n\n'
+              'Odtworzyć mimo to (bez transferu) czy pobrać ponownie (zużyje [B]%s[/B])?'
+              % (name, until or '?', why, size or '?'),
+        nolabel='Odtwórz mimo to', yeslabel='Pobierz ponownie')
+
+
 def play(link, size, name, skip_owned=False, note=''):
     try:
         c = tb7()
-        stream = None
-        owned = [] if skip_owned else [
-            x for x in c.library() if match.norm(x['filename']) == match.norm(name) and not x['expired']]
-        state = 'ok'
-        for item in owned:  # plik już na koncie - bez zużywania transferu, o ile link jeszcze żyje
-            candidate = c.playable(item['url'])
-            state, why = c.check(candidate)
-            log('plik na koncie: %s -> %s' % (item['url'], why))
-            if state != 'dead':
-                stream = candidate
-                break
-            note = '[COLOR orange]Plik na koncie wygasł (%s) - trzeba pobrać ponownie.[/COLOR]\n' % why
+        stream, state = None, 'ok'
+        candidates = [] if skip_owned else owned_candidates(c, link, name)
+        if candidates:
+            stream, state = try_owned(c, candidates)
+            if stream is None:
+                if not ask_owned_dead(name, candidates[0][1], state, size):
+                    return start_playback(c.playable(candidates[0][0]), name, 'html')  # Kodi spróbuje sam
+                note = ''
         if stream is None:
             if setting('confirm_buy') == 'true':
                 left = c.account_info()
@@ -522,6 +586,7 @@ def play(link, size, name, skip_owned=False, note=''):
                         % (note, name, size, left or '?')):
                     return xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             stream = c.get_stream(link)
+            bought_save(link, name, getattr(c, 'last_href', None))
             state, why = c.check(stream)
             log('nowy link: %s -> %s' % (stream.split('|')[0], why))
             if state == 'dead':
@@ -570,11 +635,11 @@ def play_lib(link, name='', expired=False):
         return redownload(name, 'termin minął')
     try:
         c = tb7()
-        stream = c.playable(link)
-        state, why = c.check(stream)
-        log('plik na koncie: %s -> %s' % (link, why))
-        if state == 'dead':
-            return redownload(name, why)
+        stream, state = try_owned(c, [(link, '')])
+        if stream is None:
+            if not ask_owned_dead(name, '', state, ''):
+                return start_playback(c.playable(link), name, 'html')
+            return redownload(name, state)
     except TB7Error as e:
         return play_failed(str(e))
     return start_playback(stream, name, state)

@@ -48,7 +48,8 @@ def make_resolver(name):
         c = TB7(addon.getSetting('tb7_user'), addon.getSetting('tb7_pass'),
                 xbmcvfs.translatePath(addon.getAddonInfo('profile')))
         c.login()
-        owned = [x for x in c.library() if match.norm(x['filename']) == match.norm(name)]
+        owned = [x for x in c.library() if not x['expired'] and
+                 (match.same_file(x['filename'], name) or match.same_file(x['url_name'], name))]
         if not owned:
             log('nowy link: pliku nie ma już na koncie')
             return None

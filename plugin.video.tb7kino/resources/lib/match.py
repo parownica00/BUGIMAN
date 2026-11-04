@@ -2,6 +2,7 @@
 """Dopasowanie nazw plików z TB7 do tytułu z TMDB + rozpoznanie jakości/wersji językowej."""
 import re
 import unicodedata
+from urllib.parse import unquote
 
 PL = str.maketrans('łŁ', 'lL')
 
@@ -60,3 +61,20 @@ def language(filename):
     if not tags and re.search(r'\bpl\b|\bpolish\b', f):
         tags.append('PL')
     return ' '.join(tags)
+
+
+RE_CRC = re.compile(r'\.[0-9a-f]{3}(\.(?:avi|mkv|mp4|mpg|mov|ts|mts|m2ts))$', re.I)
+
+
+def _variants(name):
+    name = unquote(name or '').strip()
+    out = {norm(name)}
+    stripped = RE_CRC.sub(r'\1', name)
+    if stripped != name:
+        out.add(norm(stripped))
+    return {v for v in out if v}
+
+
+def same_file(a, b):
+    """Czy dwie nazwy oznaczają ten sam plik (z tolerancją na kod CRC TWOJPLIK)."""
+    return bool(_variants(a) & _variants(b))

@@ -12,7 +12,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import unescape
 
 import requests
@@ -31,6 +31,9 @@ VIDEO_EXT = ('.mkv', '.mp4', '.avi', '.mov', '.mpg', '.ts', '.m2ts', '.mts')
 
 class TB7Error(Exception):
     pass
+
+
+VALID_HOURS = 24  # plik na koncie jest ważny 24 h od pobrania (kolumna w TB7 to godzina pobrania)
 
 
 def parse_expiry(text):
@@ -166,10 +169,11 @@ class TB7:
             url = unescape(link.group(1))
             name = cells[1] if len(cells) > 1 and cells[1] else url.rstrip('/').split('/')[-1]
             name = re.sub(r'^(?:\.\.\.|…)?/?', '', name.replace('\\', '/').split('/')[-1]).strip()
-            expires = cells[3] if len(cells) > 3 else ''
-            when = parse_expiry(expires)
-            out.append({'filename': name, 'url': url, 'expires': expires, 'expires_at': when,
-                        'expired': bool(when and when <= datetime.now())})
+            added = parse_expiry(cells[3] if len(cells) > 3 else '')
+            when = added + timedelta(hours=VALID_HOURS) if added else None
+            out.append({'filename': name, 'url_name': url.rstrip('/').split('/')[-1], 'url': url,
+                        'expires': when.strftime('%H:%M %d.%m') if when else '',
+                        'expires_at': when, 'expired': bool(when and when <= datetime.now())})
         return out
 
     # ---- pobranie / link do odtwarzania -------------------------------
@@ -181,6 +185,7 @@ class TB7:
         if 'value="Wgraj linki"' not in r1:
             raise TB7Error('Link jest nieaktywny.')
         r2 = self.s.post(BASE + 'mojekonto/sciagaj', data={'step': '2', '0': 'on'}, timeout=60).text
+        self.last_href = None
         hrefs = []
         for div in re.findall(r'<div[^>]*class="download"[^>]*>(.*?)</div>', r2, re.S | re.I):
             hrefs += re.findall(r'<a[^>]*href="([^"]+)"', div, re.I)
@@ -188,7 +193,8 @@ class TB7:
             if 'Nieaktywne linki' in r2:
                 raise TB7Error('Link okazał się nieaktywny.')
             raise TB7Error('Nie udało się wygenerować linku (brak transferu?).')
-        return self.playable(hrefs[1] if len(hrefs) > 1 else hrefs[0])
+        self.last_href = hrefs[1] if len(hrefs) > 1 else hrefs[0]
+        return self.playable(self.last_href)
 
     def playable(self, link):
         """Link dla odtwarzacza. Serwery hostingów (np. twojplik) mają wadliwe certyfikaty SSL,
@@ -223,7 +229,9 @@ class TB7:
                     pass
             r.close()
         except requests.RequestException as e:
-            return 'dead', '%s (%s)' % (type(e).__name__, host)
+            return 'unknown', '%s (%s)' % (type(e).__name__, host)  # chwilowy problem, nie wyrok
+        if status >= 500:
+            return 'unknown', 'HTTP %d (%s)' % (status, host)
         if status >= 400:
             return 'dead', 'HTTP %d (%s)' % (status, host)
         if 'text/html' in ctype:
