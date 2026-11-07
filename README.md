@@ -10,8 +10,8 @@ Wyszukiwarka filmów i seriali oparta o TMDB (polskie opisy, plakaty, oceny), kt
 5. Otwórz addon: poprosi o hasło do kluczy API i sam uzupełni klucz TMDB. W ustawieniach wpisz login i hasło TB7.
 
 ## Jak działa
-- Menu: wyszukiwanie filmów i seriali, listy „na topie”, „popularne” i „najwyżej oceniane”, bezpośrednie wyszukiwanie w TB7, pliki na koncie, stan transferu.
-- Po wybraniu tytułu dodatek szuka w TB7 po polskim i oryginalnym tytule z rokiem (dla seriali `SxxEyy`), filtruje wyniki, sortuje je wg jakości i rozmiaru oraz oznacza wersję (Lektor, Dubbing, Napisy).
+- Menu: wyszukiwanie filmów i seriali, **kategorie** (western, horror, komedia...; w każdej: popularne / najwyżej oceniane / najnowsze), listy „na topie”, „popularne” i „najwyżej oceniane”, bezpośrednie wyszukiwanie w TB7, pliki na koncie, stan transferu.
+- Po wybraniu tytułu dodatek szuka w TB7 po polskim i oryginalnym tytule z rokiem (dla seriali `SxxEyy`), filtruje wyniki (nazwa pliku musi zaczynać się od tytułu, a zaraz po nim musi być rok, odcinek albo jakość, więc dla „Wonder” nie pokaże „Wonder Woman”), sortuje je wg jakości i rozmiaru oraz oznacza wersję (Lektor, Dubbing, Napisy).
 - Szczegóły tytułu: opis z reżyserią i obsadą, **Obsada i ekipa** (zdjęcia, role; aktor → jego filmografia), **Zwiastun** z YouTube (najpierw polski). Te same opcje są w menu kontekstowym na liście filmów, a ekran Informacje w Kodi pokazuje obsadę i przycisk zwiastunu.
 - **Bufor startowy** (Ustawienia → Odtwarzanie): film startuje w pauzie, aż zbierze się 30/60/120 s zapasu, potem rusza sam. Anuluj = odtwarzaj od razu.
 - **Odporne odtwarzanie** (domyślnie włączone): film idzie przez lokalne proxy w addonie i nie zamyka się przy problemach z siecią. Gdy serwer hostingu zerwie połączenie albo zniknie internet, Kodi pokazuje kółko buforowania, a proxy przez maks. 15 minut łączy się ponownie od tego samego miejsca (wygasły link wymienia na nowy z konta TB7). Usługa addonu jednorazowo dopisuje w `advancedsettings.xml` cierpliwsze limity sieci Kodi (`curllowspeedtime` 300 s, `curlretries` 10, `curlclienttimeout` 30 s; kopia: `advancedsettings.xml.tb7kino.bak`) - wymaga jednego restartu Kodi.

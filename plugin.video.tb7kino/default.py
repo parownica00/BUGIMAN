@@ -157,9 +157,11 @@ def root():
     add('Filmy - popularne', u(action='list', kind='movie', name='popular'))
     add('Filmy - teraz w kinach', u(action='list', kind='movie', name='now_playing'))
     add('Filmy - najwyżej oceniane', u(action='list', kind='movie', name='top_rated'))
+    add('[B]Filmy - kategorie[/B]  [COLOR gray](western, horror, komedia...)[/COLOR]', u(action='genres', kind='movie'))
     add('Seriale - na topie (tydzień)', u(action='list', kind='tv', name='trending'))
     add('Seriale - popularne', u(action='list', kind='tv', name='popular'))
     add('Seriale - najwyżej oceniane', u(action='list', kind='tv', name='top_rated'))
+    add('[B]Seriale - kategorie[/B]', u(action='genres', kind='tv'))
     add('Szukaj bezpośrednio w TB7', u(action='raw_search'))
     add('Moje pliki na koncie TB7', u(action='library'))
     add('Stan konta TB7', u(action='account'), folder=False)
@@ -313,6 +315,24 @@ def do_search(kind):
     page = int(ARGS.get('page', 1))
     list_results(kind, meta().search(kind, q, page),
                  u(action='search', kind=kind, q=q, page=page + 1))
+
+
+def show_genres(kind):
+    for g in sorted(meta().genres(kind), key=lambda g: g['name']):
+        add(g['name'].capitalize(), u(action='genre', kind=kind, genre=g['id'], gname=g['name']))
+    end('files')
+
+
+def show_genre(kind, genre, gname, sort='popular'):
+    page = int(ARGS.get('page', 1))
+    if page == 1:
+        labels = {'popular': 'popularne', 'top_rated': 'najwyżej oceniane', 'newest': 'najnowsze'}
+        for s, lbl in labels.items():
+            if s != sort:
+                add('[COLOR gray]%s: pokaż %s[/COLOR]' % (gname.capitalize(), lbl),
+                    u(action='genre', kind=kind, genre=genre, gname=gname, sort=s))
+    list_results(kind, meta().discover(kind, genre, sort, page),
+                 u(action='genre', kind=kind, genre=genre, gname=gname, sort=sort, page=page + 1))
 
 
 def do_list(kind, name):
@@ -668,6 +688,10 @@ def router():
             do_search(ARGS['kind'])
         elif a == 'list':
             do_list(ARGS['kind'], ARGS['name'])
+        elif a == 'genres':
+            show_genres(ARGS['kind'])
+        elif a == 'genre':
+            show_genre(ARGS['kind'], ARGS['genre'], ARGS.get('gname', ''), ARGS.get('sort', 'popular'))
         elif a == 'seasons':
             seasons(ARGS['tmdb'])
         elif a == 'episodes':
@@ -702,7 +726,7 @@ def router():
             ADDON.openSettings()
     except ValueError as e:  # brak klucza TMDB itp.
         xbmcgui.Dialog().ok(NAME, str(e))
-        if a in ('search', 'list', 'seasons', 'episodes', 'sources', 'cast', 'person'):
+        if a in ('search', 'list', 'seasons', 'episodes', 'sources', 'cast', 'person', 'genres', 'genre'):
             xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
     except Exception as e:
         xbmc.log('[%s] %r' % (NAME, e), xbmc.LOGERROR)

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Metadane: TMDB (opisy PL, plakaty, oceny) + opcjonalnie OMDb (IMDb / Rotten Tomatoes)."""
+import time
+
 import requests
 
 TMDB = 'https://api.themoviedb.org/3/'
@@ -28,6 +30,22 @@ class Meta:
         if name == 'trending':
             return self._get('trending/%s/week' % kind, page=page)
         return self._get('%s/%s' % (kind, name), page=page)
+
+    def genres(self, kind):
+        return self._get('genre/%s/list' % kind).get('genres', [])
+
+    def discover(self, kind, genre, sort='popular', page=1):
+        """sort: popular | top_rated | newest"""
+        params = {'with_genres': genre, 'page': page, 'include_adult': 'false'}
+        date_field = 'primary_release_date' if kind == 'movie' else 'first_air_date'
+        if sort == 'top_rated':
+            params.update({'sort_by': 'vote_average.desc', 'vote_count.gte': 300})
+        elif sort == 'newest':
+            params.update({'sort_by': date_field + '.desc', 'vote_count.gte': 20,
+                           date_field + '.lte': time.strftime('%Y-%m-%d')})
+        else:
+            params.update({'sort_by': 'popularity.desc', 'vote_count.gte': 50})
+        return self._get('discover/%s' % kind, **params)
 
     # ---- szczegóły -------------------------------------------------------
     def details(self, kind, tmdb_id):
