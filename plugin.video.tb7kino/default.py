@@ -19,6 +19,7 @@ from meta import Meta, img, trailer_key, cast_list, crew  # noqa: E402
 import match  # noqa: E402
 import vault  # noqa: E402
 import buffer  # noqa: E402
+import evlog  # noqa: E402
 
 YOUTUBE = 'plugin.video.youtube'
 PREBUFFER = [0, 30, 60, 120]
@@ -29,6 +30,7 @@ URL = sys.argv[0]
 HANDLE = int(sys.argv[1])
 ARGS = dict(parse_qsl(sys.argv[2][1:]))
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo('profile'))
+evlog.init(PROFILE)
 SECRETS = os.path.join(os.path.dirname(__file__), 'resources', 'data', 'secrets.json')
 
 
@@ -72,6 +74,18 @@ def meta():
     if not setting('tmdb_key'):
         unlock_keys(ask_always=False)
     return Meta(setting('tmdb_key'), setting('omdb_key'), setting('language'))
+
+
+def show_events():
+    lines = evlog.read(80)
+    info = 'Wersja %s. Najnowsze wpisy na górze.\n\n' % ADDON.getAddonInfo('version')
+    text = info + (''.join(reversed(lines)) if lines else 'Dziennik jest pusty - obejrzyj film, a potem tu wróć.')
+    text = text.replace('!!!', '[COLOR red]!!![/COLOR]')
+    if xbmcgui.Dialog().yesno(NAME, 'Pokazać dziennik odtwarzania?', nolabel='Wyczyść', yeslabel='Pokaż'):
+        xbmcgui.Dialog().textviewer('Dziennik odtwarzania - TB7 Kino', text)
+    else:
+        evlog.clear()
+        notify('Dziennik wyczyszczony')
 
 
 def check_updates():
@@ -165,6 +179,8 @@ def root():
     add('Szukaj bezpośrednio w TB7', u(action='raw_search'))
     add('Moje pliki na koncie TB7', u(action='library'))
     add('Stan konta TB7', u(action='account'), folder=False)
+    add('Dziennik odtwarzania [COLOR gray](diagnostyka - co się działo z filmem)[/COLOR]',
+        u(action='events'), folder=False)
     add('Ustaw buforowanie (płynne odtwarzanie)', u(action='cache_setup'), folder=False)
     add('Odblokuj klucze API hasłem', u(action='unlock'), folder=False)
     add('Sprawdź aktualizacje  [COLOR gray](wersja %s)[/COLOR]' % ADDON.getAddonInfo('version'),
@@ -514,6 +530,7 @@ def redownload(name, why):
 
 def log(msg, level=xbmc.LOGINFO):
     xbmc.log('[%s] %s' % (NAME, msg), level)
+    evlog.write(msg)
 
 
 def play_failed(msg):
@@ -619,11 +636,14 @@ def play(link, size, name, skip_owned=False, note=''):
 
 def start_playback(stream, name, state='ok'):
     """Linki, które dają Pythonowi stronę HTML, idą do Kodi bezpośrednio (bez proxy)."""
+    host = re.sub(r'^https?://([^/]+)/.*$', r'\1', stream.split('|')[0])
     if state == 'html':
         log('link daje stronę HTML zapytaniu z Pythona - odtwarzam bez proxy', xbmc.LOGWARNING)
         path = stream
     else:
         path = via_proxy(stream, name)
+    log('ODTWARZAM: %s | serwer: %s | %s' % (name, host, 'przez proxy' if path.startswith('http://127.0.0.1') else 'BEZ proxy'))
+    xbmcgui.Window(10000).setProperty('tb7kino.playing', name or '1')
     xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=path))
     buffer.prebuffer(prebuffer_seconds(), NAME)
 
@@ -716,6 +736,8 @@ def router():
             show_person(ARGS['pid'])
         elif a == 'trailer':
             play_trailer(ARGS['kind'], ARGS['tmdb'])
+        elif a == 'events':
+            show_events()
         elif a == 'cache_setup':
             buffer.setup_cache(NAME)
         elif a == 'unlock':
